@@ -1,0 +1,150 @@
+import { Block, TransactionResponse, Log } from "ethers";
+import {
+  EventsProcessor,
+  FilteredTransaction,
+  ProcessedBlock,
+  TopicFilter,
+} from "../utils/types/blockchain.types";
+import logger from "../utils/logger";
+
+/**
+ * Implementation of blockchain events processor
+ * Responsible for filtering transactions based on topic0 hashes
+ */
+export default class BlockchainEventsProcessor implements EventsProcessor {
+  /**
+   * Constructor
+   * @param chainName - Name of the blockchain
+   * @param chainId - Chain ID of the blockchain
+   */
+  constructor(private chainName: string, private chainId: number) {
+    logger.info("Initialized blockchain events processor", {
+      chainName,
+      chainId,
+    });
+  }
+
+  /**
+   * Process a block and filter transactions based on configured topic filters
+   * @param block - The block to process with transactions
+   * @param topicFilters - Array of topic filters to apply
+   */
+  async processBlock(
+    block: Block,
+    topicFilters: TopicFilter[] = []
+  ): Promise<ProcessedBlock> {
+    logger.debug("Processing block", {
+      chainName: this.chainName,
+      blockNumber: block.number,
+      transactionCount: block.transactions?.length || 0,
+    });
+
+    if (!block.transactions || !Array.isArray(block.transactions)) {
+      logger.warn("Block does not contain transactions array", {
+        chainName: this.chainName,
+        blockNumber: block.number,
+      });
+
+      return {
+        blockHash: block.hash || "",
+        blockNumber: Number(block.number) || 0,
+        timestamp: Number(block.timestamp) || 0,
+        transactions: [],
+        chainId: this.chainId,
+        chainName: this.chainName,
+      };
+    }
+
+    const filteredTransactions = await this.filterTransactionsByTopics(
+      block.transactions as TransactionResponse[],
+      topicFilters
+    );
+
+    logger.info("Block processed", {
+      chainName: this.chainName,
+      blockNumber: block.number,
+      totalTransactions: block.transactions.length,
+      filteredTransactions: filteredTransactions.length,
+    });
+
+    return {
+      blockHash: block.hash || "",
+      blockNumber: Number(block.number) || 0,
+      timestamp: Number(block.timestamp) || 0,
+      transactions: filteredTransactions,
+      chainId: this.chainId,
+      chainName: this.chainName,
+    };
+  }
+
+  /**
+   * Filter transactions by topic0 hashes
+   * @param transactions - Array of transactions to filter
+   * @param topicFilters - Array of topic filters to apply
+   */
+  async filterTransactionsByTopics(
+    transactions: TransactionResponse[],
+    topicFilters: TopicFilter[]
+  ): Promise<FilteredTransaction[]> {
+    if (!topicFilters.length) {
+      return [];
+    }
+
+    const topicHashSet = new Set(
+      topicFilters.map((filter) => filter.hash.toLowerCase())
+    );
+
+    const filteredTransactions: FilteredTransaction[] = [];
+
+    for (const tx of transactions) {
+      try {
+        if (!tx || !tx.hash) continue;
+
+        const receipt = await tx.wait();
+
+        if (!receipt || !receipt.logs || !Array.isArray(receipt.logs)) {
+          continue;
+        }
+
+        const matchingTopics: string[] = [];
+
+        for (const log of receipt.logs as Log[]) {
+          if (log.topics && log.topics.length > 0) {
+            const topic0 = log.topics[0].toLowerCase();
+
+            if (topicHashSet.has(topic0)) {
+              matchingTopics.push(topic0);
+            }
+          }
+        }
+
+        if (matchingTopics.length > 0) {
+          const filteredTx: FilteredTransaction = {
+            ...tx,
+            blockHash: tx.blockHash || "",
+            blockNumber: Number(tx.blockNumber) || 0,
+            topics: matchingTopics,
+            chainId: BigInt(this.chainId),
+            chainName: this.chainName,
+          };
+
+          filteredTransactions.push(filteredTx);
+
+          logger.debug("Matched transaction", {
+            hash: tx.hash,
+            topics: matchingTopics,
+            chainName: this.chainName,
+          });
+        }
+      } catch (error) {
+        logger.error("Error processing transaction", {
+          hash: tx.hash,
+          error,
+          chainName: this.chainName,
+        });
+      }
+    }
+
+    return filteredTransactions;
+  }
+}

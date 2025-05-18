@@ -1,0 +1,30 @@
+.env
+node_modules
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+
+# Dependency directories
+jspm_packages
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache directory
+.eslintcache
+
+# Optional TypeScript cache directory
+.tsbuildinfo
+
+# Optional yarn cache directory
+.yarn
+
+
+dist
