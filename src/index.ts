@@ -49,7 +49,8 @@ async function initializeIndexer(
       AppDataSource.getRepository(UnprocessedBlock);
 
     const unprocessedBlocksService = new UnprocessedBlocksService(
-      unprocessedBlocksRepository
+      unprocessedBlocksRepository,
+      provider
     );
 
     const indexer = BlockchainIndexerFactory.createIndexer(
