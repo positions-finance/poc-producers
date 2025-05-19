@@ -9,7 +9,7 @@ export const AppDataSource = new DataSource({
   username: config.database.username,
   password: config.database.password,
   database: config.database.name,
-  synchronize: false, // Set to false in production
+  synchronize: config.nodeEnv === "development" ? true : false,
   logging: config.database.logging,
   entities: [UnprocessedBlock],
   migrations: ["src/migrations/*.ts"],
@@ -21,7 +21,6 @@ export const AppDataSource = new DataSource({
     : false,
 });
 
-// Initialize the data source
 export const initializeDatabase = async () => {
   try {
     await AppDataSource.initialize();
