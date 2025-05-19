@@ -1,12 +1,13 @@
 import { BlockchainIndexer } from "../utils/types/indexer.types";
-import {
-  BlockchainProvider,
-  TopicFilter,
-} from "../utils/types/blockchain.types";
+import { BlockchainProvider } from "../utils/types/blockchain.types";
 import { KafkaProducer } from "../utils/types/kafka.types";
+import { UnprocessedBlocksService } from "../services/unprocessed-blocks.service";
+import { ProcessedBlocksService } from "../services/processed-blocks.service";
+import { TopicFilter } from "../utils/types/blockchain.types";
 import BlockchainIndexerImpl from "../services/indexer.service";
 import logger from "../utils/logger";
-import { UnprocessedBlocksService } from "../services/unprocessed-blocks.service";
+import { AppDataSource } from "../config/database";
+import { ProcessedBlock } from "../entities/processed-blocks.entity";
 
 /**
  * Factory for creating blockchain indexers
@@ -30,7 +31,7 @@ export class BlockchainIndexerFactory {
     topicFilters: TopicFilter[] = [],
     startBlock?: number,
     blockConfirmations?: number
-  ): BlockchainIndexer {
+  ): BlockchainIndexerImpl {
     logger.info("Creating blockchain indexer", {
       chainName,
       topicFilters: topicFilters.length,
@@ -38,11 +39,18 @@ export class BlockchainIndexerFactory {
       blockConfirmations,
     });
 
+    const processedBlocksRepository =
+      AppDataSource.getRepository(ProcessedBlock);
+    const processedBlocksService = new ProcessedBlocksService(
+      processedBlocksRepository
+    );
+
     return new BlockchainIndexerImpl(
       provider,
       producer,
       chainName,
       unprocessedBlocksService,
+      processedBlocksService,
       topicFilters,
       startBlock,
       blockConfirmations

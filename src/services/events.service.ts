@@ -1,9 +1,10 @@
-import { Block, TransactionResponse, Log } from "ethers";
+import { Block, Log } from "ethers";
 import {
   EventsProcessor,
   FilteredTransaction,
   ProcessedBlock,
   TopicFilter,
+  BlockchainProvider,
 } from "../utils/types/blockchain.types";
 import logger from "../utils/logger";
 
@@ -16,8 +17,13 @@ export default class BlockchainEventsProcessor implements EventsProcessor {
    * Constructor
    * @param chainName - Name of the blockchain
    * @param chainId - Chain ID of the blockchain
+   * @param provider - Blockchain provider instance
    */
-  constructor(private chainName: string, private chainId: number) {
+  constructor(
+    private chainName: string,
+    private chainId: number,
+    private provider: BlockchainProvider
+  ) {
     logger.info("Initialized blockchain events processor", {
       chainName,
       chainId,
@@ -56,7 +62,7 @@ export default class BlockchainEventsProcessor implements EventsProcessor {
     }
 
     const filteredTransactions = await this.filterTransactionsByTopics(
-      block.transactions as TransactionResponse[],
+      block.transactions,
       topicFilters
     );
 
@@ -83,7 +89,7 @@ export default class BlockchainEventsProcessor implements EventsProcessor {
    * @param topicFilters - Array of topic filters to apply
    */
   async filterTransactionsByTopics(
-    transactions: TransactionResponse[],
+    transactions: string[],
     topicFilters: TopicFilter[]
   ): Promise<FilteredTransaction[]> {
     if (!topicFilters.length) {
@@ -98,9 +104,7 @@ export default class BlockchainEventsProcessor implements EventsProcessor {
 
     for (const tx of transactions) {
       try {
-        if (!tx || !tx.hash) continue;
-
-        const receipt = await tx.wait();
+        const receipt = await this.provider.getTransactionReceipt(tx);
 
         if (!receipt || !receipt.logs || !Array.isArray(receipt.logs)) {
           continue;
@@ -120,9 +124,7 @@ export default class BlockchainEventsProcessor implements EventsProcessor {
 
         if (matchingTopics.length > 0) {
           const filteredTx: FilteredTransaction = {
-            ...tx,
-            blockHash: tx.blockHash || "",
-            blockNumber: Number(tx.blockNumber) || 0,
+            ...receipt,
             topics: matchingTopics,
             chainId: BigInt(this.chainId),
             chainName: this.chainName,
@@ -131,14 +133,14 @@ export default class BlockchainEventsProcessor implements EventsProcessor {
           filteredTransactions.push(filteredTx);
 
           logger.debug("Matched transaction", {
-            hash: tx.hash,
+            hash: tx,
             topics: matchingTopics,
             chainName: this.chainName,
           });
         }
       } catch (error) {
         logger.error("Error processing transaction", {
-          hash: tx.hash,
+          hash: tx,
           error,
           chainName: this.chainName,
         });

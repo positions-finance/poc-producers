@@ -8,13 +8,15 @@ This system follows a factory pattern architecture to enable scalability, modula
 
 ### Core Components
 
-1. **Blockchain Providers**: Chain-specific implementations that connect to blockchain nodes via RPC and WebSocket, handling block retrieval and new block subscriptions.
+1. **Blockchain Providers**: Chain-specific implementations that connect to blockchain nodes via RPC and WebSocket, handling block retrieval, transaction receipts, and new block subscriptions.
 
-2. **Events Processor**: Processes blocks and filters transactions based on configured Topic0 event hashes.
+2. **Events Processor**: Processes blocks and filters transactions based on configured Topic0 event hashes, using transaction receipts to extract event logs.
 
 3. **Kafka Producer**: Sends filtered blockchain data to Kafka topics for downstream consumers.
 
 4. **Indexer Service**: Coordinates the entire process, maintaining state, and ensuring reliable data flow.
+
+5. **Processed Blocks Service**: Tracks processed blocks in the database to ensure exactly-once processing and handle chain reorganizations.
 
 ### Design Patterns
 
@@ -31,6 +33,8 @@ This system follows a factory pattern architecture to enable scalability, modula
 - **Block Confirmation**: Configurable confirmation depth for finality
 - **Graceful Shutdown**: Proper cleanup of resources on termination
 - **Error Handling**: Comprehensive error logging and management
+- **Block Tracking**: Persistent storage of processed blocks
+- **Reorg Handling**: Detection and handling of chain reorganizations
 
 ## Getting Started
 
@@ -39,6 +43,7 @@ This system follows a factory pattern architecture to enable scalability, modula
 - Node.js (v18+)
 - TypeScript
 - Kafka cluster
+- PostgreSQL database
 - Access to blockchain RPC endpoints (Ethereum, Polygon, etc.)
 
 ### Installation
@@ -69,29 +74,42 @@ KAFKA_CLIENT_ID=blockchain-indexer
 KAFKA_BROKERS=localhost:9092
 KAFKA_TOPIC=blockchain-transactions
 
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+DB_NAME=blockchain_indexer
+DB_LOGGING=true
+DB_SSL=false
+
+# Chain Configurations
 ARBITRUM_SEPOLIA_RPC_URL=https://mainnet.infura.io/v3/YOUR_INFURA_KEY
 ARBITRUM_SEPOLIA_WS_URL=wss://mainnet.infura.io/ws/v3/YOUR_INFURA_KEY
+ARBITRUM_SEPOLIA_CHAIN_ID=421614
 ARBITRUM_SEPOLIA_BLOCK_CONFIRMATIONS=12
 ARBITRUM_SEPOLIA_START_BLOCK=18000000
 
-BEPOLIA_RPC_URL=https://polygon-rpc.com
-BEPOLIA_WS_URL=wss://polygon-rpc.com
-BEPOLIA_BLOCK_CONFIRMATIONS=15
-BEPOLIA_START_BLOCK=50000000
-
+# System Configuration
 HEALTH_CHECK_INTERVAL=60000
 RETRY_DELAY=5000
 MAX_RETRIES=5
 INDEXING_BATCH_SIZE=100
 ```
 
-4. Build the project:
+4. Set up the database:
+
+```
+yarn migration:run
+```
+
+5. Build the project:
 
 ```
 yarn build
 ```
 
-5. Start the service:
+6. Start the service:
 
 ```
 yarn start
@@ -139,6 +157,29 @@ Messages produced to Kafka have the following format:
 }
 ```
 
+## Database Schema
+
+The system uses PostgreSQL to track processed blocks:
+
+### Processed Blocks Table
+
+```sql
+CREATE TABLE processed_blocks (
+  id UUID PRIMARY KEY,
+  chain_id INTEGER NOT NULL,
+  block_number INTEGER NOT NULL,
+  block_hash VARCHAR(66) NOT NULL,
+  parent_hash VARCHAR(66) NOT NULL,
+  block_data JSONB,
+  is_reorged BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_processed_blocks_chain_id ON processed_blocks(chain_id);
+CREATE INDEX idx_processed_blocks_block_number ON processed_blocks(block_number);
+```
+
 ## Extending the System
 
 ### Adding a New Blockchain
@@ -158,12 +199,14 @@ Simply add new Topic0 hashes to the filter list via API or in the initial config
 - **Horizontal Scaling**: Each chain can be run as a separate instance
 - **Parallel Processing**: Blocks are processed in batches with configurable concurrency
 - **Kafka Backend**: Enables downstream scaling through consumer groups
+- **Database Indexing**: Efficient block tracking and reorg detection
 
 ### Reliability
 
 - **No Single Point of Failure**: Each chain operates independently
 - **Self-Healing**: Health checks detect and recover from failures
-- **Exactly-Once Processing**: Careful block tracking ensures no duplicates or missed blocks
+- **Exactly-Once Processing**: Database-backed block tracking ensures no duplicates
+- **Reorg Protection**: Block hash tracking detects and handles chain reorganizations
 
 ### Modularity
 
@@ -177,6 +220,7 @@ Simply add new Topic0 hashes to the filter list via API or in the initial config
 - **Configurable**: All parameters can be tuned via environment variables
 - **Health Monitoring**: Built-in health checks and status APIs
 - **Resource Management**: Proper handling of connections and cleanup
+- **Data Persistence**: Reliable block tracking in PostgreSQL
 
 ## License
 

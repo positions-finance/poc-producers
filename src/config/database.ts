@@ -1,5 +1,4 @@
 import { DataSource } from "typeorm";
-import { UnprocessedBlock } from "../entities/UnprocessedBlock.entity";
 import config from "./env";
 
 export const AppDataSource = new DataSource({
@@ -11,7 +10,7 @@ export const AppDataSource = new DataSource({
   database: config.database.name,
   synchronize: config.nodeEnv === "development" ? true : false,
   logging: config.database.logging,
-  entities: [UnprocessedBlock],
+  entities: ["src/entities/*.entity.ts"],
   migrations: ["src/migrations/*.ts"],
   subscribers: [],
   ssl: config.database.ssl

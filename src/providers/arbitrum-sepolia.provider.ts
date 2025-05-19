@@ -1,4 +1,9 @@
-import { JsonRpcProvider, WebSocketProvider, Block } from "ethers";
+import {
+  JsonRpcProvider,
+  WebSocketProvider,
+  Block,
+  TransactionReceipt,
+} from "ethers";
 import { BlockchainProvider } from "../utils/types/blockchain.types";
 import logger from "../utils/logger";
 
@@ -39,6 +44,35 @@ export default class ArbitrumSepoliaProvider implements BlockchainProvider {
             wsUrl: this.wsUrl,
           });
           this.isWsConnected = true;
+
+          if (this.blockCallback) {
+            this.wsProvider?.on("block", (blockNumber) => {
+              logger.debug(
+                "New Arbitrum Sepolia block detected via WebSocket",
+                {
+                  blockNumber,
+                }
+              );
+              if (this.blockCallback) {
+                this.blockCallback(blockNumber);
+              }
+            });
+          }
+        };
+
+        // @ts-expect-error - onclose is not defined on WebSocketLike
+        this.wsProvider.websocket.onclose = () => {
+          logger.warn("Arbitrum Sepolia WebSocket disconnected", {
+            wsUrl: this.wsUrl,
+          });
+          this.isWsConnected = false;
+
+          setTimeout(() => {
+            logger.info("Attempting to reconnect Arbitrum Sepolia WebSocket", {
+              wsUrl: this.wsUrl,
+            });
+            this.setupWebSocketProvider();
+          }, 5000);
         };
 
         this.wsProvider.websocket.onerror = (error) => {
@@ -47,10 +81,6 @@ export default class ArbitrumSepoliaProvider implements BlockchainProvider {
             wsUrl: this.wsUrl,
           });
           this.isWsConnected = false;
-
-          setTimeout(() => {
-            this.setupWebSocketProvider();
-          }, 5000);
         };
       }
     } catch (error) {
@@ -145,6 +175,9 @@ export default class ArbitrumSepoliaProvider implements BlockchainProvider {
     this.blockCallback = callback;
 
     if (this.wsProvider) {
+      // Remove any existing listeners to avoid duplicates
+      this.wsProvider.removeAllListeners("block");
+
       this.wsProvider.on("block", (blockNumber) => {
         logger.debug("New Arbitrum Sepolia block detected via WebSocket", {
           blockNumber,
@@ -159,11 +192,13 @@ export default class ArbitrumSepoliaProvider implements BlockchainProvider {
       });
     } else {
       const POLLING_INTERVAL = 1000;
+      let lastBlockNumber = 0;
 
       const pollForBlocks = async () => {
         try {
           const blockNumber = await this.getLatestBlock();
-          if (this.blockCallback) {
+          if (this.blockCallback && blockNumber > lastBlockNumber) {
+            lastBlockNumber = blockNumber;
             this.blockCallback(blockNumber);
           }
         } catch (error) {
@@ -198,5 +233,27 @@ export default class ArbitrumSepoliaProvider implements BlockchainProvider {
    */
   getChainName(): string {
     return this.chainName;
+  }
+
+  /**
+   * Get transaction receipt by hash
+   * @param txHash - The transaction hash to retrieve
+   */
+  async getTransactionReceipt(
+    txHash: string
+  ): Promise<TransactionReceipt | null> {
+    try {
+      const receipt = await this.rpcProvider.getTransactionReceipt(txHash);
+      logger.debug("Retrieved Arbitrum Sepolia transaction receipt", {
+        txHash,
+      });
+      return receipt;
+    } catch (error) {
+      logger.error("Failed to get Arbitrum Sepolia transaction receipt", {
+        txHash,
+        error,
+      });
+      throw error;
+    }
   }
 }

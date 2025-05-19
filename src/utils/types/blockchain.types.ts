@@ -1,4 +1,4 @@
-import { Block, TransactionResponse } from "ethers";
+import { Block, TransactionResponse, TransactionReceipt } from "ethers";
 
 export interface FilteredTransaction extends Partial<TransactionResponse> {
   blockHash: string;
@@ -47,6 +47,7 @@ export interface BlockchainProvider {
   subscribeToNewBlocks(callback: (blockNumber: number) => void): void;
   unsubscribeFromNewBlocks(): void;
   getChainName(): string;
+  getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null>;
 }
 
 export interface IndexerParams {
@@ -60,7 +61,7 @@ export interface IndexerParams {
 export interface EventsProcessor {
   processBlock(block: Block): Promise<ProcessedBlock>;
   filterTransactionsByTopics(
-    transactions: TransactionResponse[],
+    transactions: string[],
     topics: TopicFilter[]
   ): Promise<FilteredTransaction[]>;
 }

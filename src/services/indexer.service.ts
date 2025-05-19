@@ -7,6 +7,7 @@ import {
 import { KafkaProducer } from "../utils/types/kafka.types";
 import BlockchainEventsProcessor from "./events.service";
 import { UnprocessedBlocksService } from "./unprocessed-blocks.service";
+import { ProcessedBlocksService } from "./processed-blocks.service";
 import logger from "../utils/logger";
 import config from "../config/env";
 import { BlockchainIndexer } from "../utils/types/indexer.types";
@@ -35,6 +36,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
    * @param producer - Kafka producer for outputting filtered transactions
    * @param chainName - Name of the blockchain
    * @param unprocessedBlocksService - Service for unprocessed blocks
+   * @param processedBlocksService - Service for processed blocks
    * @param initialTopicFilters - Initial topic filters to apply
    * @param startBlock - Starting block number for indexing (optional)
    * @param blockConfirmations - Number of block confirmations to wait before processing
@@ -44,6 +46,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
     private producer: KafkaProducer,
     private chainName: string,
     private unprocessedBlocksService: UnprocessedBlocksService,
+    private processedBlocksService: ProcessedBlocksService,
     initialTopicFilters: TopicFilter[] = [],
     startBlock?: number,
     blockConfirmations?: number
@@ -75,7 +78,8 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       const chainId = await this.provider.getChainId();
       this.eventsProcessor = new BlockchainEventsProcessor(
         this.chainName,
-        chainId
+        chainId,
+        this.provider
       );
 
       logger.info("Events processor initialized", {
@@ -222,6 +226,20 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
     });
 
     try {
+      const chainId = await this.provider.getChainId();
+
+      const isProcessed = await this.processedBlocksService.isBlockProcessed(
+        chainId,
+        blockNumber
+      );
+      if (isProcessed) {
+        logger.debug("Block already processed", {
+          chainName: this.chainName,
+          blockNumber,
+        });
+        return;
+      }
+
       const block = await this.provider.getBlockWithTransactions(blockNumber);
 
       if (!block) {
@@ -233,14 +251,11 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       }
 
       const unprocessedBlock = await this.unprocessedBlocksService.addBlock(
-        await this.provider.getChainId(),
+        chainId,
         block
       );
 
-      await this.unprocessedBlocksService.checkForReorgs(
-        await this.provider.getChainId(),
-        block
-      );
+      await this.unprocessedBlocksService.checkForReorgs(chainId, block);
 
       await this.unprocessedBlocksService.markAsProcessing(unprocessedBlock);
 
@@ -248,6 +263,12 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
         block,
         this.topicFilters
       );
+      logger.info("Processed block", {
+        chainName: this.chainName,
+        blockNumber,
+        processedBlock,
+        transactions: processedBlock.transactions.length,
+      });
 
       if (processedBlock.transactions.length > 0) {
         const messages: BlockchainMessage[] = processedBlock.transactions.map(
@@ -268,6 +289,8 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       }
 
       await this.unprocessedBlocksService.markAsCompleted(unprocessedBlock);
+
+      await this.processedBlocksService.addBlock(chainId, block);
 
       this.lastUpdated = new Date();
     } catch (error) {
@@ -381,64 +404,58 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
    */
   private async processBacklog(): Promise<void> {
     if (!this.isRunning || this.isPaused) {
+      logger.debug(
+        "Skipping backlog processing - indexer not running or paused",
+        {
+          chainName: this.chainName,
+          isRunning: this.isRunning,
+          isPaused: this.isPaused,
+        }
+      );
       return;
     }
 
     try {
       this.latestBlock = await this.provider.getLatestBlock();
+      const chainId = await this.provider.getChainId();
 
       const confirmedBlock = Math.max(
         0,
         this.latestBlock - this.blockConfirmations
       );
 
-      if (this.processedBlock >= confirmedBlock) {
-        logger.debug("No backlog to process", {
+      const latestProcessed =
+        await this.processedBlocksService.getLatestProcessedBlock(chainId);
+      const startBlock = latestProcessed
+        ? latestProcessed.blockNumber + 1
+        : this.processedBlock + 1;
+
+      logger.debug("Checking backlog status", {
+        chainName: this.chainName,
+        startBlock,
+        latestBlock: this.latestBlock,
+        confirmedBlock,
+        blockConfirmations: this.blockConfirmations,
+      });
+
+      if (startBlock > confirmedBlock) {
+        logger.debug("No new blocks to process", {
           chainName: this.chainName,
-          processedBlock: this.processedBlock,
+          startBlock,
           confirmedBlock,
         });
         return;
       }
 
-      const blocksToProcess =
-        await this.unprocessedBlocksService.getBlocksToProcess(
-          await this.provider.getChainId()
-        );
+      await this.processBlockRange(startBlock, confirmedBlock);
 
-      const reorgedBlocks =
-        await this.unprocessedBlocksService.getReorgedBlocks(
-          await this.provider.getChainId()
-        );
-
-      if (reorgedBlocks.length > 0) {
-        logger.info("Processing reorged blocks", {
-          chainName: this.chainName,
-          count: reorgedBlocks.length,
-        });
-
-        for (const block of reorgedBlocks) {
-          await this.processBlockNumber(block.blockNumber);
-        }
-      }
-
-      if (blocksToProcess.length > 0) {
-        logger.info("Processing pending blocks", {
-          chainName: this.chainName,
-          count: blocksToProcess.length,
-        });
-
-        for (const block of blocksToProcess) {
-          await this.processBlockNumber(block.blockNumber);
-        }
-      }
-
-      this.processedBlock = confirmedBlock;
       this.lastUpdated = new Date();
 
       logger.info("Backlog processing completed", {
         chainName: this.chainName,
-        processedBlock: this.processedBlock,
+        startBlock,
+        latestBlock: this.latestBlock,
+        confirmedBlock,
       });
     } catch (error) {
       logger.error("Error processing backlog", {
