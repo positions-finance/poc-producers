@@ -31,4 +31,15 @@ export interface EnvConfig {
   retryDelay: number; // in milliseconds
   maxRetries: number;
   indexingBatchSize: number;
+  database: DatabaseConfig;
+}
+
+export interface DatabaseConfig {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  name: string;
+  logging: boolean;
+  ssl: boolean;
 }

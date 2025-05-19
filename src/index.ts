@@ -9,6 +9,9 @@ import KafkaProducerFactory from "./factories/producer.factory";
 import BlockchainIndexerFactory from "./factories/indexer.factory";
 import { BlockchainIndexer } from "./utils/types/indexer.types";
 import { TopicFilter } from "./utils/types/blockchain.types";
+import { UnprocessedBlocksService } from "./services/unprocessed-blocks.service";
+import { AppDataSource, initializeDatabase } from "./config/database";
+import { UnprocessedBlock } from "./entities/UnprocessedBlock.entity";
 
 const indexers: Map<string, BlockchainIndexer> = new Map();
 
@@ -42,10 +45,18 @@ async function initializeIndexer(
       config.kafka.topic
     );
 
+    const unprocessedBlocksRepository =
+      AppDataSource.getRepository(UnprocessedBlock);
+
+    const unprocessedBlocksService = new UnprocessedBlocksService(
+      unprocessedBlocksRepository
+    );
+
     const indexer = BlockchainIndexerFactory.createIndexer(
       provider,
       producer,
       chainName,
+      unprocessedBlocksService,
       topicFilters,
       chainConfig.startBlock,
       chainConfig.blockConfirmations
@@ -304,15 +315,17 @@ async function main(): Promise<void> {
 
     const chainNames = Object.keys(config.chains);
 
-    const sampleTopicFilters: TopicFilter[] = [
+    const topicFilters: TopicFilter[] = [
       {
         hash: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
         description: "ERC20 Transfer Event",
       },
     ];
 
+    await initializeDatabase();
+
     for (const chainName of chainNames) {
-      await initializeIndexer(chainName, sampleTopicFilters);
+      await initializeIndexer(chainName, topicFilters);
     }
 
     logger.info("Blockchain indexer service started successfully");

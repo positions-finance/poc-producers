@@ -6,6 +6,7 @@ import {
 import { KafkaProducer } from "../utils/types/kafka.types";
 import BlockchainIndexerImpl from "../services/indexer.service";
 import logger from "../utils/logger";
+import { UnprocessedBlocksService } from "../services/unprocessed-blocks.service";
 
 /**
  * Factory for creating blockchain indexers
@@ -25,6 +26,7 @@ export class BlockchainIndexerFactory {
     provider: BlockchainProvider,
     producer: KafkaProducer,
     chainName: string,
+    unprocessedBlocksService: UnprocessedBlocksService,
     topicFilters: TopicFilter[] = [],
     startBlock?: number,
     blockConfirmations?: number
@@ -40,6 +42,7 @@ export class BlockchainIndexerFactory {
       provider,
       producer,
       chainName,
+      unprocessedBlocksService,
       topicFilters,
       startBlock,
       blockConfirmations
