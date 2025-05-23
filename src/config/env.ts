@@ -8,10 +8,16 @@ const config: EnvConfig = {
     port: parseInt(process.env.API_PORT || "8080", 10),
     host: process.env.API_HOST || "localhost",
   },
-  kafka: {
-    clientId: process.env.KAFKA_CLIENT_ID || "blockchain-indexer",
-    brokers: (process.env.KAFKA_BROKERS || "localhost:9092").split(","),
-    topic: process.env.KAFKA_TOPIC || "blockchain-events",
+  redis: {
+    host: process.env.REDIS_HOST || "localhost",
+    port: parseInt(process.env.REDIS_PORT || "6379", 10),
+    password: process.env.REDIS_PASSWORD || undefined,
+    database: process.env.REDIS_DATABASE
+      ? parseInt(process.env.REDIS_DATABASE, 10)
+      : 0,
+    channel: process.env.REDIS_CHANNEL || "blockchain-events",
+    username: process.env.REDIS_USERNAME || undefined,
+    tls: process.env.REDIS_TLS === "true",
   },
   chains: {
     "arbitrum-sepolia": {

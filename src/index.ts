@@ -5,7 +5,7 @@ import cron from "node-cron";
 import config from "./config/env";
 import logger from "./utils/logger";
 import BlockchainProviderFactory from "./factories/provider.factory";
-import KafkaProducerFactory from "./factories/producer.factory";
+import RedisPublisherFactory from "./factories/publisher.factory";
 import BlockchainIndexerFactory from "./factories/indexer.factory";
 import { BlockchainIndexer } from "./utils/types/indexer.types";
 import { TopicFilter } from "./utils/types/blockchain.types";
@@ -39,10 +39,16 @@ async function initializeIndexer(
       chainConfig.wsUrl
     );
 
-    const producer = KafkaProducerFactory.createProducer(
-      config.kafka.clientId,
-      config.kafka.brokers,
-      config.kafka.topic
+    const publisher = RedisPublisherFactory.createPublisher(
+      config.redis.host,
+      config.redis.port,
+      config.redis.channel,
+      {
+        password: config.redis.password,
+        database: config.redis.database,
+        username: config.redis.username,
+        tls: config.redis.tls,
+      }
     );
 
     const unprocessedBlocksRepository =
@@ -55,7 +61,7 @@ async function initializeIndexer(
 
     const indexer = BlockchainIndexerFactory.createIndexer(
       provider,
-      producer,
+      publisher,
       chainName,
       unprocessedBlocksService,
       topicFilters,

@@ -4,7 +4,7 @@ import {
   TopicFilter,
   IndexerStatus,
 } from "../utils/types/blockchain.types";
-import { KafkaProducer } from "../utils/types/kafka.types";
+import { RedisPublisher } from "../utils/types/redis.types";
 import BlockchainEventsProcessor from "./events.service";
 import { UnprocessedBlocksService } from "./unprocessed-blocks.service";
 import { ProcessedBlocksService } from "./processed-blocks.service";
@@ -14,7 +14,7 @@ import { BlockchainIndexer } from "../utils/types/indexer.types";
 
 /**
  * Implementation of the blockchain indexer
- * Handles indexing blocks from a blockchain and producing messages to Kafka
+ * Handles indexing blocks from a blockchain and publishing messages to Redis
  */
 export default class BlockchainIndexerImpl implements BlockchainIndexer {
   private topicFilters: TopicFilter[] = [];
@@ -33,7 +33,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
   /**
    * Creates a new blockchain indexer
    * @param provider - Blockchain provider for the specific chain
-   * @param producer - Kafka producer for outputting filtered transactions
+   * @param publisher - Redis publisher for outputting filtered transactions
    * @param chainName - Name of the blockchain
    * @param unprocessedBlocksService - Service for unprocessed blocks
    * @param processedBlocksService - Service for processed blocks
@@ -43,7 +43,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
    */
   constructor(
     private provider: BlockchainProvider,
-    private producer: KafkaProducer,
+    private publisher: RedisPublisher,
     private chainName: string,
     private unprocessedBlocksService: UnprocessedBlocksService,
     private processedBlocksService: ProcessedBlocksService,
@@ -107,8 +107,8 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
     try {
       logger.info("Starting blockchain indexer", { chainName: this.chainName });
 
-      if (!this.producer.isConnected()) {
-        await this.producer.connect();
+      if (!this.publisher.isConnected()) {
+        await this.publisher.connect();
       }
 
       this.isRunning = true;
@@ -161,8 +161,8 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
     this.isRunning = false;
     this.isPaused = false;
 
-    if (this.producer.isConnected()) {
-      await this.producer.disconnect();
+    if (this.publisher.isConnected()) {
+      await this.publisher.disconnect();
     }
 
     logger.info("Blockchain indexer stopped", { chainName: this.chainName });
@@ -279,7 +279,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
           })
         );
 
-        await this.producer.produceMessages(messages);
+        await this.publisher.publishMessages(messages);
 
         logger.info("Produced messages for block", {
           chainName: this.chainName,
@@ -519,31 +519,31 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       try {
         const providerHealthy = await this.provider.isHealthy();
 
-        const producerHealthy = this.producer.isConnected();
+        const publisherHealthy = this.publisher.isConnected();
 
         logger.debug("Health check", {
           chainName: this.chainName,
           providerHealthy,
-          producerHealthy,
+          publisherHealthy,
           latestBlock: this.latestBlock,
           processedBlock: this.processedBlock,
         });
 
-        if (!providerHealthy || !producerHealthy) {
+        if (!providerHealthy || !publisherHealthy) {
           logger.warn("Unhealthy state detected", {
             chainName: this.chainName,
             providerHealthy,
-            producerHealthy,
+            publisherHealthy,
           });
 
-          if (!producerHealthy && this.isRunning) {
+          if (!publisherHealthy && this.isRunning) {
             try {
-              await this.producer.connect();
-              logger.info("Reconnected Kafka producer", {
+              await this.publisher.connect();
+              logger.info("Reconnected Redis publisher", {
                 chainName: this.chainName,
               });
             } catch (error) {
-              logger.error("Failed to reconnect Kafka producer", {
+              logger.error("Failed to reconnect Redis publisher", {
                 chainName: this.chainName,
                 error,
               });

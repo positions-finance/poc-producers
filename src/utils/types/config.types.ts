@@ -6,10 +6,14 @@ export interface BlockchainConfig {
   startBlock?: number;
 }
 
-export interface KafkaConfig {
-  clientId: string;
-  brokers: string[];
-  topic: string;
+export interface RedisConfig {
+  host: string;
+  port: number;
+  password?: string;
+  database?: number;
+  channel: string;
+  username?: string;
+  tls?: boolean;
 }
 
 export interface ChainConfigs {
@@ -25,7 +29,7 @@ export interface EnvConfig {
   nodeEnv: string;
   logLevel: string;
   api: ApiConfig;
-  kafka: KafkaConfig;
+  redis: RedisConfig;
   chains: ChainConfigs;
   healthCheckInterval: number; // in milliseconds
   retryDelay: number; // in milliseconds

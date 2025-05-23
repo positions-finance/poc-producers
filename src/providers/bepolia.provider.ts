@@ -1,4 +1,9 @@
-import { JsonRpcProvider, WebSocketProvider, Block } from "ethers";
+import {
+  JsonRpcProvider,
+  WebSocketProvider,
+  Block,
+  TransactionReceipt,
+} from "ethers";
 import { BlockchainProvider } from "../utils/types/blockchain.types";
 import logger from "../utils/logger";
 
@@ -102,6 +107,26 @@ export default class BepoliaProvider implements BlockchainProvider {
     } catch (error) {
       logger.error("Failed to get Bepolia block with transactions", {
         blockNumber,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get transaction receipt by transaction hash
+   * @param txHash - The transaction hash to get receipt for
+   */
+  async getTransactionReceipt(
+    txHash: string
+  ): Promise<TransactionReceipt | null> {
+    try {
+      const receipt = await this.rpcProvider.getTransactionReceipt(txHash);
+      logger.debug("Retrieved Bepolia transaction receipt", { txHash });
+      return receipt;
+    } catch (error) {
+      logger.error("Failed to get Bepolia transaction receipt", {
+        txHash,
         error,
       });
       throw error;

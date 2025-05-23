@@ -3,7 +3,7 @@ import {
   IndexerStatus,
   TopicFilter,
 } from "./blockchain.types";
-import { KafkaProducer } from "./kafka.types";
+import { RedisPublisher } from "./redis.types";
 
 export interface BlockchainIndexer {
   start(): Promise<void>;
@@ -34,7 +34,7 @@ export interface BlockchainIndexer {
 export interface BlockchainIndexerFactory {
   createIndexer(
     provider: BlockchainProvider,
-    producer: KafkaProducer,
+    publisher: RedisPublisher,
     chainName: string,
     topicFilters: TopicFilter[],
     startBlock?: number,

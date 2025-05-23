@@ -1,6 +1,6 @@
 # Blockchain Transaction Indexer for Multi-Chain Producers
 
-A scalable, modular blockchain indexing system designed to monitor multiple blockchains simultaneously, filter transactions based on event topic hashes, and produce the filtered data to Kafka for downstream consumers.
+A scalable, modular blockchain indexing system designed to monitor multiple blockchains simultaneously, filter transactions based on event topic hashes, and publish the filtered data to Redis Pub/Sub for downstream consumers.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ This system follows a factory pattern architecture to enable scalability, modula
 
 2. **Events Processor**: Processes blocks and filters transactions based on configured Topic0 event hashes, using transaction receipts to extract event logs.
 
-3. **Kafka Producer**: Sends filtered blockchain data to Kafka topics for downstream consumers.
+3. **Redis Publisher**: Publishes filtered blockchain data to Redis channels for downstream consumers.
 
 4. **Indexer Service**: Coordinates the entire process, maintaining state, and ensuring reliable data flow.
 
@@ -42,7 +42,7 @@ This system follows a factory pattern architecture to enable scalability, modula
 
 - Node.js (v18+)
 - TypeScript
-- Kafka cluster
+- Redis server
 - PostgreSQL database
 - Access to blockchain RPC endpoints (Ethereum, Polygon, etc.)
 
@@ -70,9 +70,14 @@ LOG_LEVEL=info
 API_PORT=3000
 API_HOST=0.0.0.0
 
-KAFKA_CLIENT_ID=blockchain-indexer
-KAFKA_BROKERS=localhost:9092
-KAFKA_TOPIC=blockchain-transactions
+# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your_password  # Optional
+REDIS_DATABASE=0              # Optional, default is 0
+REDIS_CHANNEL=blockchain-events
+REDIS_USERNAME=your_username  # Optional
+REDIS_TLS=false              # Optional, set to true for TLS
 
 # Database Configuration
 DB_HOST=localhost
@@ -133,9 +138,9 @@ The service exposes REST APIs for monitoring and management:
 - `POST /api/indexers/:chainName/pause` - Pause an indexer
 - `POST /api/indexers/:chainName/resume` - Resume a paused indexer
 
-## Kafka Message Format
+## Redis Message Format
 
-Messages produced to Kafka have the following format:
+Messages published to Redis have the following enhanced format with metadata:
 
 ```typescript
 {
@@ -152,8 +157,15 @@ Messages produced to Kafka have the following format:
     chainName: string;
     topics: string[]; // Matched Topic0 hashes
   },
+  events: any[];
   timestamp: number;
-  topics: string[];
+  metadata: {
+    chainId: number;
+    chainName: string;
+    blockNumber: number;
+    transactionHash: string;
+    timestamp: number;
+  }
 }
 ```
 

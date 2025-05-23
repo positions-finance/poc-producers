@@ -1,6 +1,6 @@
 import { BlockchainIndexer } from "../utils/types/indexer.types";
 import { BlockchainProvider } from "../utils/types/blockchain.types";
-import { KafkaProducer } from "../utils/types/kafka.types";
+import { RedisPublisher } from "../utils/types/redis.types";
 import { UnprocessedBlocksService } from "../services/unprocessed-blocks.service";
 import { ProcessedBlocksService } from "../services/processed-blocks.service";
 import { TopicFilter } from "../utils/types/blockchain.types";
@@ -16,7 +16,7 @@ export class BlockchainIndexerFactory {
   /**
    * Creates a new blockchain indexer
    * @param provider - Blockchain provider for the specific chain
-   * @param producer - Kafka producer to output messages
+   * @param publisher - Redis publisher to output messages
    * @param chainName - Name of the blockchain
    * @param topicFilters - Initial topic filters to apply
    * @param startBlock - Starting block number for indexing (optional)
@@ -25,7 +25,7 @@ export class BlockchainIndexerFactory {
    */
   static createIndexer(
     provider: BlockchainProvider,
-    producer: KafkaProducer,
+    publisher: RedisPublisher,
     chainName: string,
     unprocessedBlocksService: UnprocessedBlocksService,
     topicFilters: TopicFilter[] = [],
@@ -47,7 +47,7 @@ export class BlockchainIndexerFactory {
 
     return new BlockchainIndexerImpl(
       provider,
-      producer,
+      publisher,
       chainName,
       unprocessedBlocksService,
       processedBlocksService,
