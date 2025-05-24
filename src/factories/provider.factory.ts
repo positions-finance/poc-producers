@@ -24,6 +24,10 @@ export class BlockchainProviderFactory {
     switch (chainName.toLowerCase()) {
       case "arbitrum-sepolia":
         return new ArbitrumSepoliaProvider(rpcUrl, wsUrl);
+
+      case "bepolia":
+        return new BepoliaProvider(rpcUrl, wsUrl);
+
       default:
         logger.error(`Unsupported chain: ${chainName}`);
         throw new Error(`Unsupported chain: ${chainName}`);

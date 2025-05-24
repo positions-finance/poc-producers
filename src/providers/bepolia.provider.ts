@@ -134,6 +134,24 @@ export default class BepoliaProvider implements BlockchainProvider {
   }
 
   /**
+   * Get transaction by transaction hash
+   * @param txHash - The transaction hash to get details for
+   */
+  async getTransaction(txHash: string): Promise<any | null> {
+    try {
+      const transaction = await this.rpcProvider.getTransaction(txHash);
+      logger.debug("Retrieved Bepolia transaction", { txHash });
+      return transaction;
+    } catch (error) {
+      logger.error("Failed to get Bepolia transaction", {
+        txHash,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Get the chain ID
    */
   async getChainId(): Promise<number> {

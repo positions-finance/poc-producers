@@ -1,11 +1,20 @@
 import { Block, TransactionResponse, TransactionReceipt } from "ethers";
 
-export interface FilteredTransaction extends Partial<TransactionResponse> {
+export interface FilteredTransaction {
   blockHash: string;
   blockNumber: number;
   topics?: string[];
-  chainId: bigint;
+  chainId: number;
   chainName: string;
+  from: string;
+  to?: string;
+  value: string;
+  data?: string;
+  hash: string;
+  gasUsed?: string;
+  gasPrice?: string;
+  status?: string;
+  logs?: any[];
 }
 
 export interface ProcessedBlock {
@@ -33,15 +42,39 @@ export interface IndexerStatus {
 }
 
 export interface BlockchainMessage {
-  transaction: FilteredTransaction;
+  transaction: {
+    hash: string;
+    blockNumber: number;
+    chainId: number;
+    chainName: string;
+    from: string;
+    to?: string;
+    value: string;
+    gasUsed?: string;
+    gasPrice?: string;
+    status?: string;
+    logs?: any[];
+    timestamp: number;
+    blockHash: string;
+    data?: string;
+    topics?: string[];
+  };
+  events: any[];
   timestamp: number;
-  topics: string[];
+  metadata: {
+    chainId: number;
+    chainName: string;
+    blockNumber: number;
+    transactionHash: string;
+    timestamp: number;
+  };
 }
 
 export interface BlockchainProvider {
   getLatestBlock(): Promise<number>;
   getBlock(blockNumber: number): Promise<Block | null>;
   getBlockWithTransactions(blockNumber: number): Promise<Block | null>;
+  getTransaction(txHash: string): Promise<TransactionResponse | null>;
   getChainId(): Promise<number>;
   isHealthy(): Promise<boolean>;
   subscribeToNewBlocks(callback: (blockNumber: number) => void): void;

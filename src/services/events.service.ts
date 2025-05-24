@@ -123,11 +123,23 @@ export default class BlockchainEventsProcessor implements EventsProcessor {
         }
 
         if (matchingTopics.length > 0) {
+          const transaction = await this.provider.getTransaction(tx);
+
           const filteredTx: FilteredTransaction = {
-            ...receipt,
+            blockHash: receipt.blockHash || "",
+            blockNumber: receipt.blockNumber || 0,
             topics: matchingTopics,
-            chainId: BigInt(this.chainId),
+            chainId: this.chainId,
             chainName: this.chainName,
+            hash: receipt.hash || "",
+            from: receipt.from || "",
+            to: receipt.to || undefined,
+            value: transaction?.value?.toString() || "0",
+            data: transaction?.data || "",
+            gasUsed: receipt.gasUsed?.toString(),
+            gasPrice: transaction?.gasPrice?.toString(),
+            status: receipt.status?.toString() || "1",
+            logs: receipt.logs || [],
           };
 
           filteredTransactions.push(filteredTx);

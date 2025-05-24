@@ -18,8 +18,9 @@ export class BlockchainIndexerFactory {
    * @param provider - Blockchain provider for the specific chain
    * @param publisher - Redis publisher to output messages
    * @param chainName - Name of the blockchain
+   * @param unprocessedBlocksService - Service for unprocessed blocks
    * @param topicFilters - Initial topic filters to apply
-   * @param startBlock - Starting block number for indexing (optional)
+   * @param startBlock - Starting block number from environment config (optional)
    * @param blockConfirmations - Number of block confirmations to wait before processing
    * @returns BlockchainIndexer instance
    */

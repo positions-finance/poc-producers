@@ -16,6 +16,10 @@ export interface BlockchainIndexer {
 
   getStatus(): IndexerStatus;
 
+  getDetailedStatus(): Promise<
+    IndexerStatus & { latestProcessedFromDB?: number }
+  >;
+
   processBlockNumber(blockNumber: number): Promise<void>;
 
   processBlockRange(startBlock: number, endBlock: number): Promise<void>;

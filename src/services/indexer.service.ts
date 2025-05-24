@@ -29,6 +29,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
   private lastUpdated: Date = new Date();
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private blockSubscriptionActive: boolean = false;
+  private envStartBlock?: number;
 
   /**
    * Creates a new blockchain indexer
@@ -38,7 +39,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
    * @param unprocessedBlocksService - Service for unprocessed blocks
    * @param processedBlocksService - Service for processed blocks
    * @param initialTopicFilters - Initial topic filters to apply
-   * @param startBlock - Starting block number for indexing (optional)
+   * @param startBlock - Starting block number for indexing from environment config (optional)
    * @param blockConfirmations - Number of block confirmations to wait before processing
    */
   constructor(
@@ -56,16 +57,14 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
     this.maxRetries = config.maxRetries;
     this.blockConfirmations = blockConfirmations || 2;
 
-    if (startBlock !== undefined) {
-      this.processedBlock = startBlock - 1;
-    }
+    this.envStartBlock = startBlock;
 
     this.initializeEventsProcessor();
 
     logger.info("Blockchain indexer created", {
       chainName,
       topicFilters: this.topicFilters.length,
-      startBlock,
+      envStartBlock: startBlock,
       blockConfirmations: this.blockConfirmations,
     });
   }
@@ -116,16 +115,15 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
 
       this.latestBlock = await this.provider.getLatestBlock();
 
-      if (this.processedBlock === 0) {
-        this.processedBlock = Math.max(
-          0,
-          this.latestBlock - this.blockConfirmations
-        );
-        logger.info("Starting indexing from block", {
-          chainName: this.chainName,
-          startBlock: this.processedBlock,
-        });
-      }
+      const startingBlock = await this.determineStartingBlock();
+      this.processedBlock = startingBlock - 1;
+
+      logger.info("Determined starting block for indexing", {
+        chainName: this.chainName,
+        startingBlock,
+        processedBlock: this.processedBlock,
+        latestBlock: this.latestBlock,
+      });
 
       this.startHealthCheck();
 
@@ -216,7 +214,44 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
   }
 
   /**
-   * Process a specific block number
+   * Get the current status of the indexer with database-accurate processed block
+   */
+  async getDetailedStatus(): Promise<
+    IndexerStatus & { latestProcessedFromDB?: number }
+  > {
+    try {
+      const chainId = this.eventsProcessor
+        ? this.eventsProcessor["chainId"]
+        : 0;
+      let latestProcessedFromDB: number | undefined;
+
+      if (chainId > 0) {
+        const latestProcessed =
+          await this.processedBlocksService.getLatestProcessedBlock(chainId);
+        latestProcessedFromDB = latestProcessed?.blockNumber;
+      }
+
+      return {
+        chainName: this.chainName,
+        chainId,
+        latestBlock: this.latestBlock,
+        processedBlock: this.processedBlock,
+        isHealthy: this.isRunning && !this.isPaused,
+        lastUpdated: this.lastUpdated,
+        isPaused: this.isPaused,
+        latestProcessedFromDB,
+      };
+    } catch (error) {
+      logger.error("Error getting detailed status", {
+        chainName: this.chainName,
+        error,
+      });
+      return this.getStatus();
+    }
+  }
+
+  /**
+   * Process a specific block number atomically
    * @param blockNumber - The block number to process
    */
   async processBlockNumber(blockNumber: number): Promise<void> {
@@ -224,6 +259,8 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       chainName: this.chainName,
       blockNumber,
     });
+
+    let unprocessedBlock: any = null;
 
     try {
       const chainId = await this.provider.getChainId();
@@ -233,7 +270,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
         blockNumber
       );
       if (isProcessed) {
-        logger.debug("Block already processed", {
+        logger.debug("Block already processed, skipping", {
           chainName: this.chainName,
           blockNumber,
         });
@@ -250,7 +287,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
         return;
       }
 
-      const unprocessedBlock = await this.unprocessedBlocksService.addBlock(
+      unprocessedBlock = await this.unprocessedBlocksService.addBlock(
         chainId,
         block
       );
@@ -263,28 +300,57 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
         block,
         this.topicFilters
       );
-      logger.info("Processed block", {
+
+      logger.info("Block processed by events processor", {
         chainName: this.chainName,
         blockNumber,
-        processedBlock,
-        transactions: processedBlock.transactions.length,
+        totalTransactions: block.transactions?.length || 0,
+        filteredTransactions: processedBlock.transactions.length,
       });
 
       if (processedBlock.transactions.length > 0) {
         const messages: BlockchainMessage[] = processedBlock.transactions.map(
           (tx) => ({
-            transaction: tx,
+            transaction: {
+              hash: tx.hash,
+              blockNumber: tx.blockNumber,
+              chainId: tx.chainId,
+              chainName: tx.chainName,
+              from: tx.from,
+              to: tx.to,
+              value: tx.value || "0",
+              gasUsed: tx.gasUsed?.toString(),
+              gasPrice: tx.gasPrice?.toString(),
+              status: tx.status || "1",
+              logs: tx.logs || [],
+              timestamp: processedBlock.timestamp,
+              blockHash: tx.blockHash,
+              data: tx.data || "",
+              topics: tx.topics || [],
+            },
+            events: this.extractEventsFromLogs(tx.logs || []),
             timestamp: processedBlock.timestamp,
-            topics: tx.topics || [],
+            metadata: {
+              chainId: tx.chainId,
+              chainName: tx.chainName,
+              blockNumber: tx.blockNumber,
+              transactionHash: tx.hash,
+              timestamp: processedBlock.timestamp,
+            },
           })
         );
 
         await this.publisher.publishMessages(messages);
 
-        logger.info("Produced messages for block", {
+        logger.info("Messages published to Redis", {
           chainName: this.chainName,
           blockNumber,
           messageCount: messages.length,
+        });
+      } else {
+        logger.debug("No filtered transactions found, no messages to publish", {
+          chainName: this.chainName,
+          blockNumber,
         });
       }
 
@@ -293,6 +359,13 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       await this.processedBlocksService.addBlock(chainId, block);
 
       this.lastUpdated = new Date();
+
+      logger.info("Block processing completed successfully", {
+        chainName: this.chainName,
+        blockNumber,
+        filteredTransactions: processedBlock.transactions.length,
+        messagesPublished: processedBlock.transactions.length,
+      });
     } catch (error) {
       logger.error("Error processing block", {
         chainName: this.chainName,
@@ -300,15 +373,19 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
         error,
       });
 
-      const unprocessedBlock = await this.unprocessedBlocksService
-        .getBlocksToProcess(await this.provider.getChainId(), 1)
-        .then((blocks) => blocks.find((b) => b.blockNumber === blockNumber));
-
       if (unprocessedBlock) {
-        await this.unprocessedBlocksService.markAsFailed(
-          unprocessedBlock,
-          error as Error
-        );
+        try {
+          await this.unprocessedBlocksService.markAsFailed(
+            unprocessedBlock,
+            error as Error
+          );
+        } catch (markFailedError) {
+          logger.error("Failed to mark block as failed", {
+            chainName: this.chainName,
+            blockNumber,
+            error: markFailedError,
+          });
+        }
       }
 
       throw error;
@@ -316,50 +393,97 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
   }
 
   /**
-   * Process a range of blocks
+   * Process a range of blocks sequentially
    * @param startBlock - The starting block number
    * @param endBlock - The ending block number
    */
   async processBlockRange(startBlock: number, endBlock: number): Promise<void> {
-    logger.info("Processing block range", {
+    logger.info("Processing block range sequentially", {
       chainName: this.chainName,
       startBlock,
       endBlock,
       count: endBlock - startBlock + 1,
     });
 
-    const batchSize = config.indexingBatchSize;
-
-    for (let i = startBlock; i <= endBlock; i += batchSize) {
+    for (let blockNumber = startBlock; blockNumber <= endBlock; blockNumber++) {
       if (!this.isRunning || this.isPaused) {
         logger.info("Block range processing interrupted", {
           chainName: this.chainName,
-          currentBlock: i,
+          currentBlock: blockNumber,
+          processed: blockNumber - startBlock,
+          remaining: endBlock - blockNumber + 1,
         });
         break;
       }
 
-      const batchEnd = Math.min(i + batchSize - 1, endBlock);
+      try {
+        await this.processBlockNumberWithRetry(blockNumber);
 
-      const promises = [];
-      for (let j = i; j <= batchEnd; j++) {
-        promises.push(this.processBlockNumberWithRetry(j));
+        this.processedBlock = blockNumber;
+
+        logger.debug("Block processed sequentially", {
+          chainName: this.chainName,
+          blockNumber,
+          progress: `${blockNumber - startBlock + 1}/${
+            endBlock - startBlock + 1
+          }`,
+        });
+
+        if (blockNumber < endBlock) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      } catch (error) {
+        logger.error("Failed to process block in sequence", {
+          chainName: this.chainName,
+          blockNumber,
+          error,
+        });
+
+        if (this.shouldStopOnError(error)) {
+          logger.error(
+            "Critical error encountered, stopping block processing",
+            {
+              chainName: this.chainName,
+              blockNumber,
+              error,
+            }
+          );
+          throw error;
+        }
+
+        logger.warn("Non-critical error, continuing with next block", {
+          chainName: this.chainName,
+          blockNumber,
+          error,
+        });
       }
-
-      await Promise.all(promises);
-
-      logger.info("Processed batch of blocks", {
-        chainName: this.chainName,
-        from: i,
-        to: batchEnd,
-      });
     }
 
-    logger.info("Block range processing completed", {
+    logger.info("Block range processing completed sequentially", {
       chainName: this.chainName,
       startBlock,
       endBlock,
+      blocksProcessed: Math.min(this.processedBlock, endBlock) - startBlock + 1,
     });
+  }
+
+  /**
+   * Determine if processing should stop based on the error type
+   * @param error - The error that occurred
+   * @returns true if processing should stop, false to continue
+   */
+  private shouldStopOnError(error: any): boolean {
+    const errorString = error?.message?.toLowerCase() || "";
+
+    const criticalErrors = [
+      "database",
+      "connection refused",
+      "network error",
+      "timeout",
+      "redis",
+    ];
+
+    return criticalErrors.some((critical) => errorString.includes(critical));
   }
 
   /**
@@ -400,7 +524,7 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
   }
 
   /**
-   * Process backlog of blocks
+   * Process backlog of blocks sequentially
    */
   private async processBacklog(): Promise<void> {
     if (!this.isRunning || this.isPaused) {
@@ -430,16 +554,18 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
         ? latestProcessed.blockNumber + 1
         : this.processedBlock + 1;
 
-      logger.debug("Checking backlog status", {
+      logger.debug("Backlog processing status", {
         chainName: this.chainName,
-        startBlock,
         latestBlock: this.latestBlock,
         confirmedBlock,
+        latestProcessedFromDB: latestProcessed?.blockNumber,
+        startBlock,
+        blocksToProcess: Math.max(0, confirmedBlock - startBlock + 1),
         blockConfirmations: this.blockConfirmations,
       });
 
       if (startBlock > confirmedBlock) {
-        logger.debug("No new blocks to process", {
+        logger.debug("No new blocks to process in backlog", {
           chainName: this.chainName,
           startBlock,
           confirmedBlock,
@@ -447,15 +573,30 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
         return;
       }
 
+      logger.info("Starting backlog processing", {
+        chainName: this.chainName,
+        startBlock,
+        endBlock: confirmedBlock,
+        blocksToProcess: confirmedBlock - startBlock + 1,
+      });
+
       await this.processBlockRange(startBlock, confirmedBlock);
+
+      if (latestProcessed) {
+        this.processedBlock = Math.max(
+          this.processedBlock,
+          latestProcessed.blockNumber
+        );
+      }
 
       this.lastUpdated = new Date();
 
-      logger.info("Backlog processing completed", {
+      logger.info("Backlog processing completed successfully", {
         chainName: this.chainName,
         startBlock,
-        latestBlock: this.latestBlock,
-        confirmedBlock,
+        endBlock: confirmedBlock,
+        blocksProcessed: confirmedBlock - startBlock + 1,
+        newProcessedBlock: this.processedBlock,
       });
     } catch (error) {
       logger.error("Error processing backlog", {
@@ -473,6 +614,8 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       return;
     }
 
+    let isProcessingBacklog = false;
+
     this.provider.subscribeToNewBlocks(async (blockNumber: number) => {
       if (!this.isRunning || this.isPaused) {
         return;
@@ -481,11 +624,31 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       logger.debug("New block notification received", {
         chainName: this.chainName,
         blockNumber,
+        isProcessingBacklog,
       });
 
       this.latestBlock = Math.max(this.latestBlock, blockNumber);
 
-      this.processBacklog();
+      if (!isProcessingBacklog) {
+        isProcessingBacklog = true;
+
+        try {
+          await this.processBacklog();
+        } catch (error) {
+          logger.error("Error in new block backlog processing", {
+            chainName: this.chainName,
+            blockNumber,
+            error,
+          });
+        } finally {
+          isProcessingBacklog = false;
+        }
+      } else {
+        logger.debug("Backlog processing already in progress, skipping", {
+          chainName: this.chainName,
+          blockNumber,
+        });
+      }
     });
 
     this.blockSubscriptionActive = true;
@@ -649,5 +812,94 @@ export default class BlockchainIndexerImpl implements BlockchainIndexer {
       chainName: this.chainName,
       maxRetries: count,
     });
+  }
+
+  /**
+   * Determine the starting block for indexing
+   * Priority: DB latest processed block + 1 > Environment config > Latest block - confirmations
+   */
+  private async determineStartingBlock(): Promise<number> {
+    try {
+      const chainId = await this.provider.getChainId();
+
+      const latestProcessed =
+        await this.processedBlocksService.getLatestProcessedBlock(chainId);
+
+      if (latestProcessed) {
+        const nextBlock = latestProcessed.blockNumber + 1;
+        logger.info("Found latest processed block in database", {
+          chainName: this.chainName,
+          chainId,
+          latestProcessedBlock: latestProcessed.blockNumber,
+          nextBlockToProcess: nextBlock,
+        });
+        return nextBlock;
+      }
+
+      if (this.envStartBlock !== undefined) {
+        logger.info(
+          "No processed blocks found in database, using environment start block",
+          {
+            chainName: this.chainName,
+            chainId,
+            envStartBlock: this.envStartBlock,
+          }
+        );
+        return this.envStartBlock;
+      }
+
+      this.latestBlock = await this.provider.getLatestBlock();
+      const defaultStartBlock = Math.max(
+        0,
+        this.latestBlock - this.blockConfirmations
+      );
+
+      logger.info(
+        "No processed blocks in database and no environment start block, using latest block minus confirmations",
+        {
+          chainName: this.chainName,
+          chainId,
+          latestBlock: this.latestBlock,
+          blockConfirmations: this.blockConfirmations,
+          defaultStartBlock,
+        }
+      );
+
+      return defaultStartBlock;
+    } catch (error) {
+      logger.error("Error determining starting block", {
+        chainName: this.chainName,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Extract structured events from transaction logs
+   * @param logs - Raw transaction logs
+   * @returns Parsed events array
+   */
+  private extractEventsFromLogs(logs: any[]): any[] {
+    try {
+      return logs.map((log, index) => ({
+        logIndex: index,
+        address: log.address || "",
+        topics: log.topics || [],
+        data: log.data || "",
+        blockNumber: log.blockNumber || 0,
+        transactionHash: log.transactionHash || "",
+        transactionIndex: log.transactionIndex || 0,
+        blockHash: log.blockHash || "",
+        removed: log.removed || false,
+      }));
+    } catch (error) {
+      logger.error("Error extracting events from logs", {
+        chainName: this.chainName,
+        error,
+        logsCount: logs.length,
+      });
+      return [];
+    }
   }
 }

@@ -20,30 +20,30 @@ const config: EnvConfig = {
     tls: process.env.REDIS_TLS === "true",
   },
   chains: {
-    "arbitrum-sepolia": {
-      rpcUrl: process.env.ARBITRUM_SEPOLIA_RPC_URL || "",
-      wsUrl: process.env.ARBITRUM_SEPOLIA_WS_URL || "",
-      chainId: parseInt(process.env.ARBITRUM_SEPOLIA_CHAIN_ID || "421614", 10),
-      blockConfirmations: parseInt(
-        process.env.ARBITRUM_SEPOLIA_BLOCK_CONFIRMATIONS || "2",
-        10
-      ),
-      startBlock: process.env.ARBITRUM_SEPOLIA_START_BLOCK
-        ? parseInt(process.env.ARBITRUM_SEPOLIA_START_BLOCK, 10)
-        : undefined,
-    },
-    // bepolia: {
-    //   rpcUrl: process.env.BEPOLIA_RPC_URL || "",
-    //   wsUrl: process.env.BEPOLIA_WS_URL || "",
-    //   chainId: parseInt(process.env.BEPOLIA_CHAIN_ID || "11155111", 10),
+    // "arbitrum-sepolia": {
+    //   rpcUrl: process.env.ARBITRUM_SEPOLIA_RPC_URL || "",
+    //   wsUrl: process.env.ARBITRUM_SEPOLIA_WS_URL || "",
+    //   chainId: parseInt(process.env.ARBITRUM_SEPOLIA_CHAIN_ID || "421614", 10),
     //   blockConfirmations: parseInt(
-    //     process.env.BEPOLIA_BLOCK_CONFIRMATIONS || "2",
+    //     process.env.ARBITRUM_SEPOLIA_BLOCK_CONFIRMATIONS || "2",
     //     10
     //   ),
-    //   startBlock: process.env.BEPOLIA_START_BLOCK
-    //     ? parseInt(process.env.BEPOLIA_START_BLOCK, 10)
+    //   startBlock: process.env.ARBITRUM_SEPOLIA_START_BLOCK
+    //     ? parseInt(process.env.ARBITRUM_SEPOLIA_START_BLOCK, 10)
     //     : undefined,
     // },
+    bepolia: {
+      rpcUrl: process.env.BEPOLIA_RPC_URL || "",
+      wsUrl: process.env.BEPOLIA_WS_URL || "",
+      chainId: parseInt(process.env.BEPOLIA_CHAIN_ID || "11155111", 10),
+      blockConfirmations: parseInt(
+        process.env.BEPOLIA_BLOCK_CONFIRMATIONS || "2",
+        10
+      ),
+      startBlock: process.env.BEPOLIA_START_BLOCK
+        ? parseInt(process.env.BEPOLIA_START_BLOCK, 10)
+        : undefined,
+    },
   },
   healthCheckInterval: parseInt(
     process.env.HEALTH_CHECK_INTERVAL || "30000",

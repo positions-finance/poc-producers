@@ -256,4 +256,22 @@ export default class ArbitrumSepoliaProvider implements BlockchainProvider {
       throw error;
     }
   }
+
+  /**
+   * Get transaction by transaction hash
+   * @param txHash - The transaction hash to get details for
+   */
+  async getTransaction(txHash: string): Promise<any | null> {
+    try {
+      const transaction = await this.rpcProvider.getTransaction(txHash);
+      logger.debug("Retrieved Arbitrum Sepolia transaction", { txHash });
+      return transaction;
+    } catch (error) {
+      logger.error("Failed to get Arbitrum Sepolia transaction", {
+        txHash,
+        error,
+      });
+      throw error;
+    }
+  }
 }
