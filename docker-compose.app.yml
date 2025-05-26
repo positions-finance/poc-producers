@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  blockchain-indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockchain-indexer-app
+    ports:
+      - "8080:8080"
+    environment:
+      # Application Configuration
+      NODE_ENV: production
+      LOG_LEVEL: info
+      
+      # API Configuration
+      API_PORT: 8080
+      API_HOST: 0.0.0.0
+      
+      # Redis Configuration (configure these for your Redis instance)
+      REDIS_HOST: ${REDIS_HOST:-localhost}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DATABASE: ${REDIS_DATABASE:-0}
+      REDIS_CHANNEL: ${REDIS_CHANNEL:-blockchain-events}
+      REDIS_USERNAME: ${REDIS_USERNAME:-}
+      REDIS_TLS: ${REDIS_TLS:-false}
+      
+      # Database Configuration (configure these for your PostgreSQL instance)
+      DB_HOST: ${DB_HOST:-localhost}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-blockchain_indexer}
+      DB_LOGGING: ${DB_LOGGING:-false}
+      DB_SSL: ${DB_SSL:-false}
+      
+      # Chain Configurations (configure as needed)
+      BEPOLIA_RPC_URL: ${BEPOLIA_RPC_URL:-}
+      BEPOLIA_WS_URL: ${BEPOLIA_WS_URL:-}
+      BEPOLIA_CHAIN_ID: ${BEPOLIA_CHAIN_ID:-11155111}
+      BEPOLIA_BLOCK_CONFIRMATIONS: ${BEPOLIA_BLOCK_CONFIRMATIONS:-2}
+      BEPOLIA_START_BLOCK: ${BEPOLIA_START_BLOCK:-}
+      
+      # System Configuration
+      HEALTH_CHECK_INTERVAL: ${HEALTH_CHECK_INTERVAL:-30000}
+      RETRY_DELAY: ${RETRY_DELAY:-300}
+      MAX_RETRIES: ${MAX_RETRIES:-5}
+      INDEXING_BATCH_SIZE: ${INDEXING_BATCH_SIZE:-100}
+    restart: unless-stopped
+    network_mode: host 
